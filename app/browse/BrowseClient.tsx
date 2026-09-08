@@ -47,7 +47,7 @@ type StatusFilter = 'all' | 'open' | 'closed'
 type SortField = 'date' | 'artist' | 'venue' | 'festival' | 'city' | 'tour'
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const DECADES = ['All Time', '1900s', '1910s', '1920s', '1930s', '1940s', '1950s', '1960s', '1970s', '1980s', '1990s', '2000s', '2010s', '2020s']
+const DECADES = ['1900s', '1910s', '1920s', '1930s', '1940s', '1950s', '1960s', '1970s', '1980s', '1990s', '2000s', '2010s', '2020s']
 
 const CAPACITY_BUTTONS: { key: CapacityFilter; label: string; tooltip: string; unselectedClass: string }[] = [
   { key: 'all',     label: 'All', tooltip: 'All venues',        unselectedClass: 'text-muted-foreground' },
