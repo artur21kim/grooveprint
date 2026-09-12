@@ -18,7 +18,7 @@ Usage:
 
 Env vars (scripts/.env or environment):
   SUPABASE_URL
-  SUPABASE_SERVICE_ROLE_KEY   (or SUPABASE_SERVICE_KEY)
+  SUPABASE_SERVICE_KEY   (or SUPABASE_SERVICE_KEY)
 
 Prerequisites:
   pip install rapidfuzz openpyxl supabase python-dotenv --break-system-packages
@@ -73,10 +73,10 @@ _WATCH_URL_RE = re.compile(r"(https://www\.youtube\.com/watch\?v=[^&\s]+)")
 load_dotenv(Path(__file__).parent / ".env") or load_dotenv(Path(__file__).parent / "tm_enrichment" / ".env")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_KEY")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    sys.exit("ERROR: Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY in environment.")
+    sys.exit("ERROR: Missing SUPABASE_URL / SUPABASE_SERVICE_KEY in environment.")
 
 
 def get_client():

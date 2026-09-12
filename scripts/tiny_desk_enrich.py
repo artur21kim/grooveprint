@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 load_dotenv(".env.local")
 
 SUPABASE_URL = os.environ["NEXT_PUBLIC_SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 SUFFIXES = [
     ": Tiny Desk Concert",

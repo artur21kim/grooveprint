@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
 
 WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 REQUEST_DELAY = 3.0   # seconds between Wikipedia API calls (tunable via --delay)
@@ -161,7 +161,7 @@ def should_skip(venue_name: str) -> bool:
 def update_capacity(venue_id: int, capacity: int) -> bool:
     """Write capacity to dim_venue via Supabase REST."""
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set")
+        raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_KEY not set")
     url = f"{SUPABASE_URL}/rest/v1/dim_venue"
     resp = requests.patch(
         url,

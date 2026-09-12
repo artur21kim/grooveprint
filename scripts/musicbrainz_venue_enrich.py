@@ -53,7 +53,7 @@ Prerequisites:
 
 Env vars (resolved from .env.local if present, else environment):
     NEXT_PUBLIC_SUPABASE_URL
-    SUPABASE_SERVICE_ROLE_KEY
+    SUPABASE_SERVICE_KEY
 """
 
 import argparse
@@ -261,7 +261,7 @@ def run(
         logging.getLogger().setLevel(logging.DEBUG)
 
     supabase_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ["SUPABASE_URL"]
-    supabase_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    supabase_key = os.environ["SUPABASE_SERVICE_KEY"]
     db = create_client(supabase_url, supabase_key)
 
     # ── Load venues ───────────────────────────────────────────────────────────
