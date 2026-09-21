@@ -68,19 +68,47 @@ const MONTH_NAMES_FULL = ['January','February','March','April','May','June','Jul
 const TEAL = '#00BFA8'
 
 const PROVINCE_NAMES: Record<string, string> = {
-  BC: 'British Columbia', ON: 'Ontario', QC: 'Quebec', AB: 'Alberta',
-  MB: 'Manitoba', SK: 'Saskatchewan', NS: 'Nova Scotia', NB: 'New Brunswick',
+  // Canadian provinces & territories
+  BC: 'British Columbia', ON: 'Ontario',       QC: 'Quebec',          AB: 'Alberta',
+  MB: 'Manitoba',         SK: 'Saskatchewan',  NS: 'Nova Scotia',     NB: 'New Brunswick',
   NL: 'Newfoundland and Labrador', PE: 'Prince Edward Island',
   NT: 'Northwest Territories', NU: 'Nunavut', YT: 'Yukon',
-  WA: 'Washington', OR: 'Oregon', CA: 'California', ID: 'Idaho', MT: 'Montana',
+  // US states — full set
+  WA: 'Washington',  OR: 'Oregon',     CA: 'California',  NY: 'New York',
+  IL: 'Illinois',    TX: 'Texas',      FL: 'Florida',     MI: 'Michigan',
+  CO: 'Colorado',    OH: 'Ohio',       PA: 'Pennsylvania',GA: 'Georgia',
+  TN: 'Tennessee',   MA: 'Massachusetts', NV: 'Nevada',   AZ: 'Arizona',
+  MN: 'Minnesota',   NC: 'North Carolina', MO: 'Missouri',WI: 'Wisconsin',
+  OK: 'Oklahoma',    KY: 'Kentucky',   IN: 'Indiana',     AL: 'Alabama',
+  LA: 'Louisiana',   SC: 'South Carolina', MD: 'Maryland',DC: 'Washington D.C.',
+  IA: 'Iowa',        NE: 'Nebraska',   ID: 'Idaho',       UT: 'Utah',
+  NM: 'New Mexico',  VA: 'Virginia',   WV: 'West Virginia', KS: 'Kansas',
+  AR: 'Arkansas',    MS: 'Mississippi',ND: 'North Dakota',SD: 'South Dakota',
+  MT: 'Montana',     WY: 'Wyoming',    NJ: 'New Jersey',  CT: 'Connecticut',
+  RI: 'Rhode Island',NH: 'New Hampshire', VT: 'Vermont',  ME: 'Maine',
+  DE: 'Delaware',    HI: 'Hawaii',     AK: 'Alaska',
+}
+
+// Country-aware resolver — handles WA (Washington vs Western Australia) and NT collisions
+function getStateName(state: string, country: string | null): string {
+  const c = (country ?? '').toLowerCase()
+  if (c === 'australia' || c === 'au') {
+    const AU_STATES: Record<string, string> = {
+      NSW: 'New South Wales',  VIC: 'Victoria',          QLD: 'Queensland',
+      SA:  'South Australia',  WA:  'Western Australia', ACT: 'Australian Capital Territory',
+      TAS: 'Tasmania',         NT:  'Northern Territory',
+    }
+    return AU_STATES[state] ?? state
+  }
+  return PROVINCE_NAMES[state] ?? state
 }
 
 const COUNTRY_DISPLAY: Record<string, string> = {
-  CA: 'Canada', US: 'United States',
+  CA: 'Canada', US: 'United States', Australia: 'Australia',
 }
 
 const FLAG_EMOJI: Record<string, string> = {
-  CA: '🇨🇦', US: '🇺🇸',
+  CA: '🇨🇦', US: '🇺🇸', Australia: '🇦🇺',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -258,7 +286,7 @@ function BrowseContent({
   const sortedLocations = useMemo(() =>
     [...locations].sort((a, b) => {
       if (a.country !== b.country) return a.country === 'CA' ? -1 : b.country === 'CA' ? 1 : a.country.localeCompare(b.country)
-      return (PROVINCE_NAMES[a.state] ?? a.state).localeCompare(PROVINCE_NAMES[b.state] ?? b.state)
+      return getStateName(a.state, a.country).localeCompare(getStateName(b.state, b.country))
     })
   , [locations])
 
@@ -730,13 +758,13 @@ function BrowseContent({
                   {Array.from(
                     sortedLocations.reduce((acc, loc) => {
                       if (!acc.has(loc.country)) acc.set(loc.country, [])
-                      acc.get(loc.country)!.push(loc.state)
+                      acc.get(loc.country)!.push(loc)
                       return acc
-                    }, new Map<string, string[]>())
-                  ).map(([country, states]) => (
+                    }, new Map<string, LocationOption[]>())
+                  ).map(([country, locs]) => (
                     <optgroup key={country} label={COUNTRY_DISPLAY[country] ?? country}>
-                      {states.map(s => (
-                        <option key={s} value={s}>{PROVINCE_NAMES[s] ?? s}</option>
+                      {locs.map(loc => (
+                        <option key={loc.state} value={loc.state}>{getStateName(loc.state, loc.country)}</option>
                       ))}
                     </optgroup>
                   ))}
@@ -1003,7 +1031,7 @@ function BrowseContent({
                                 <button
                                   onClick={() => handleProvinceChange(show.state!)}
                                   className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors text-left truncate min-w-0"
-                                  title={`Filter: ${PROVINCE_NAMES[show.state!] ?? show.state}`}
+                                  title={`Filter: ${getStateName(show.state!, show.country)}`}
                                 >
                                   {show.city}, {show.state}
                                 </button>

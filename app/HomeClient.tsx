@@ -48,9 +48,25 @@ const STATE_NAMES: Record<string, string> = {
 function normalizeCountry(c: string | null): string | null {
   if (!c) return c
   const l = c.toLowerCase()
-  if (l === 'canada')                    return 'CA'
+  if (l === 'canada')                               return 'CA'
   if (l === 'united states' || l === 'us' || l === 'usa') return 'US'
+  if (l === 'australia' || l === 'au')              return 'AU'
   return c
+}
+
+// ── Country-aware state name resolver ────────────────────────
+// Handles WA (Washington US vs Western Australia) and NT (Northwest Territories CA vs Northern Territory AU)
+function getStateName(state: string, country: string | null): string {
+  const c = (country ?? '').toLowerCase()
+  if (c === 'au' || c === 'australia') {
+    const AU_STATES: Record<string, string> = {
+      NSW: 'New South Wales',  VIC: 'Victoria',          QLD: 'Queensland',
+      SA:  'South Australia',  WA:  'Western Australia', ACT: 'Australian Capital Territory',
+      TAS: 'Tasmania',         NT:  'Northern Territory',
+    }
+    return AU_STATES[state] ?? state
+  }
+  return STATE_NAMES[state] ?? state
 }
 
 // ── Main component ────────────────────────────────────────────
@@ -280,10 +296,12 @@ export default function HomeClient({
     }
   }, [drillStats, initialStats, cityStatsData, selectedState, globalDateRange])
 
-  // ── Filter context label ──────────────────────────────────
-  const filterContext = useMemo(() =>
-    selectedState ? (STATE_NAMES[selectedState] ?? selectedState) : null
-  , [selectedState])
+  // ── Filter context label — country-aware for AU/US/CA state collisions ────
+  const filterContext = useMemo(() => {
+    if (!selectedState) return null
+    const province = provinceStats.find(p => p.state === selectedState)
+    return getStateName(selectedState, province?.country ?? null)
+  }, [selectedState, provinceStats])
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -578,7 +596,7 @@ export default function HomeClient({
                         onClick={() => toggleProvince(prov.state)}
                         className={`w-full flex items-center justify-between py-1.5 rounded px-1 transition-colors${prov.state === selectedState ? ' ring-1 ring-primary' : ''}`}
                         style={{ background: `linear-gradient(to right, rgba(0,191,168,0.22) ${pct}%, transparent ${pct}%)` }}
-                        title={`${STATE_NAMES[prov.state] ?? prov.state}: ${prov.total.toLocaleString()} shows · ${sharePct}% of total`}
+                        title={`${getStateName(prov.state, prov.country)}: ${prov.total.toLocaleString()} shows · ${sharePct}% of total`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <svg
@@ -593,7 +611,7 @@ export default function HomeClient({
                             <path d="M2 1.5l4 2.5-4 2.5V1.5z"/>
                           </svg>
                           <span className="text-sm font-medium text-foreground">
-                            {STATE_NAMES[prov.state] ?? prov.state}
+                            {getStateName(prov.state, prov.country)}
                           </span>
                           {prov.country && (
                             <CountryFlag code={prov.country} className="inline-block w-4 h-auto rounded-[1px] align-[-2px]" />

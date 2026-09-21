@@ -1,9 +1,9 @@
-import { CA, US } from 'country-flag-icons/react/3x2'
+import { CA, US, AU } from 'country-flag-icons/react/3x2'
 
-// Local, tree-shaken SVG flags (only CA/US bundled today). Replaces emoji flags,
+// Local, tree-shaken SVG flags (only CA/US/AU bundled today). Replaces emoji flags,
 // which Windows does not render — flag emoji fall back to their regional-indicator
 // letters ("CA"/"US") on Windows/Chrome. Extend FLAGS as new countries are added.
-const FLAGS: Record<string, typeof CA> = { CA, US }
+const FLAGS: Record<string, typeof CA> = { CA, US, AU }
 
 export default function CountryFlag({
   code,
