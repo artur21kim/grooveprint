@@ -14,14 +14,24 @@ export type ProvinceData = {
   cities:  Array<{ city: string; show_count: number; latitude: number | null; longitude: number | null }>
 }
 
+// ── Compound-key helper ───────────────────────────────────────────────────────
+// WA and NT collide between North America and Australia.
+// All Australian states use an 'AU_' prefix internally so they never clash.
+// The parent component stores this compound string in selectedState unchanged.
+function provinceId(state: string, country: string): string {
+  return country === 'Australia' ? `AU_${state}` : state
+}
+
 // ── Province label positions ──────────────────────────────────────────────────
-// Where the province/state abbreviation appears on a typical North America atlas —
+// Where the province/state abbreviation appears on a typical atlas —
 // not city-area positions, not geographic centroids, but readable label zones.
 const PROVINCE_COORDS: Record<string, [number, number]> = {
+  // Canada
   BC: [54.5, -126.5],  AB: [54.5, -114.5],  SK: [54.5, -106.0],  MB: [54.0,  -97.5],
   ON: [49.5,  -84.0],  QC: [52.0,  -72.0],  NS: [45.0,  -63.0],  NB: [46.5,  -66.5],
   NL: [53.0,  -59.0],  PE: [46.5,  -63.3],  NT: [64.0, -118.0],  YT: [63.0, -135.0],
   NU: [70.0,  -86.0],
+  // United States
   WA: [47.3, -120.5],  OR: [44.0, -120.5],  CA: [37.5, -119.5],  NV: [39.5, -116.5],
   AZ: [34.3, -111.7],  CO: [39.0, -105.5],  TX: [31.5,  -99.5],  OK: [35.5,  -97.5],
   UT: [39.5, -111.5],  ID: [44.5, -114.0],  NM: [34.5, -106.5],
@@ -31,15 +41,26 @@ const PROVINCE_COORDS: Record<string, [number, number]> = {
   LA: [31.0,  -91.5],  OH: [40.5,  -82.5],  MI: [44.5,  -85.5],  PA: [41.0,  -77.5],
   NC: [35.5,  -79.5],  SC: [34.0,  -81.0],  MA: [42.3,  -71.8],  NY: [42.9,  -75.5],
   MD: [39.2,  -76.8],  DC: [38.9,  -77.1],
+  // Australia — 'AU_' prefix avoids WA (Washington) and NT (Northwest Territories) collisions
+  AU_QLD: [-22.0,  144.0],
+  AU_NSW: [-32.0,  147.0],
+  AU_VIC: [-37.0,  144.5],
+  AU_SA:  [-30.0,  135.5],
+  AU_WA:  [-25.5,  121.0],
+  AU_ACT: [-35.3,  149.1],
+  AU_TAS: [-42.0,  146.5],
+  AU_NT:  [-20.0,  133.5],
 }
 
-// City coordinates now sourced from dim_city via get_overview_city_stats (GP-153)
+// City coordinates sourced from dim_city via get_overview_city_stats (GP-153)
 
 const STATE_NAMES: Record<string, string> = {
+  // Canada
   BC: 'British Columbia', AB: 'Alberta',         MB: 'Manitoba',
   SK: 'Saskatchewan',     ON: 'Ontario',         QC: 'Quebec',
   NS: 'Nova Scotia',      NB: 'New Brunswick',   NL: 'Newfoundland & Labrador',
   PE: 'Prince Edward Island',
+  // United States
   WA: 'Washington',  OR: 'Oregon',    CA: 'California',    NV: 'Nevada',
   AZ: 'Arizona',     CO: 'Colorado',  TX: 'Texas',         OK: 'Oklahoma',
   UT: 'Utah',        ID: 'Idaho',     NM: 'New Mexico',
@@ -49,6 +70,15 @@ const STATE_NAMES: Record<string, string> = {
   LA: 'Louisiana',   OH: 'Ohio',      MI: 'Michigan',      PA: 'Pennsylvania',
   NC: 'North Carolina', SC: 'South Carolina', MA: 'Massachusetts', NY: 'New York',
   MD: 'Maryland',    DC: 'Washington D.C.',
+  // Australia — same 'AU_' prefix
+  AU_QLD: 'Queensland',
+  AU_NSW: 'New South Wales',
+  AU_VIC: 'Victoria',
+  AU_SA:  'South Australia',
+  AU_WA:  'Western Australia',
+  AU_ACT: 'Australian Capital Territory',
+  AU_TAS: 'Tasmania',
+  AU_NT:  'Northern Territory',
 }
 
 const NA_CENTER: [number, number] = [44, -96]
@@ -135,6 +165,7 @@ function MapController({
     } else if (positions.length === 1) {
       map.setView(positions[0], 9, { animate: true })
     } else if (PROVINCE_COORDS[selectedState]) {
+      // selectedState is already the compound key (e.g. 'AU_QLD') so lookup works directly
       map.setView(PROVINCE_COORDS[selectedState], 7, { animate: true })
     }
   }, [selectedState]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -215,11 +246,17 @@ export default function ProvinceMap({
           const data    = await res.json()
           const feature = data.features?.[0]
 
-          // Path 1: short_code (e.g. 'US-NY' -> 'NY', 'CA-BC' -> 'BC')
+          // Detect country prefix from short_code (e.g. 'AU-QLD' → prefix 'AU')
+          const shortCode   = (feature?.properties?.short_code ?? feature?.short_code) as string | undefined
+          const codeParts   = shortCode?.includes('-') ? shortCode.split('-') : []
+          const countryPrefix = codeParts[0]          // 'AU', 'US', 'CA', etc.
+          const isAustralia = countryPrefix === 'AU'
+
+          // Path 1: short_code (e.g. 'AU-QLD' → 'QLD', then 'AU_QLD' if Australian)
           let stateCode: string | undefined
-          const shortCode = (feature?.properties?.short_code ?? feature?.short_code) as string | undefined
-          if (shortCode?.includes('-')) {
-            stateCode = shortCode.split('-').slice(1).join('-')
+          if (codeParts.length >= 2) {
+            const rawCode = codeParts.slice(1).join('-')
+            stateCode = isAustralia ? `AU_${rawCode}` : rawCode
           }
 
           // Path 2: match feature text against STATE_NAMES values
@@ -245,7 +282,6 @@ export default function ProvinceMap({
         }
       },
       () => {
-        // Permission denied or unavailable — show brief hint, then reset
         setGeoState('denied')
         setTimeout(() => setGeoState('idle'), 2500)
       }
@@ -258,13 +294,16 @@ export default function ProvinceMap({
     return { minTotal: Math.min(...totals, 1), maxTotal: Math.max(...totals, 1) }
   }, [provinces])
 
+  // Filter to provinces that have a known coordinate position
+  // Uses compound key (provinceId) so AU_WA and WA (Washington) are both visible
   const visibleProvinces = useMemo(
-    () => provinces.filter(p => PROVINCE_COORDS[p.state]),
+    () => provinces.filter(p => PROVINCE_COORDS[provinceId(p.state, p.country)]),
     [provinces]
   )
 
+  // Match selectedState (which is now a compound key, e.g. 'AU_QLD') against provinces
   const selectedProvince = useMemo(
-    () => provinces.find(p => p.state === selectedState),
+    () => provinces.find(p => provinceId(p.state, p.country) === selectedState),
     [provinces, selectedState]
   )
 
@@ -275,6 +314,7 @@ export default function ProvinceMap({
     return { cityMin: Math.min(...counts, 1), cityMax: Math.max(...counts, 1) }
   }, [selectedProvince])
 
+  // Display name: compound key ('AU_QLD') → 'Queensland' via STATE_NAMES
   const stateName = selectedState ? (STATE_NAMES[selectedState] ?? selectedState) : ''
 
   if (visibleProvinces.length === 0) {
@@ -380,14 +420,18 @@ export default function ProvinceMap({
         <MapController selectedState={selectedState} selectedProvince={selectedProvince} />
 
         {/* Province view — bubbles at label positions, click to drill in */}
-        {!selectedState && visibleProvinces.map(province => (
-          <Marker
-            key={province.state}
-            position={PROVINCE_COORDS[province.state]}
-            icon={makeBubbleIcon(province.total, getRadius(province.total, minTotal, maxTotal))}
-            eventHandlers={{ click: () => onStateChange(province.state) }}
-          />
-        ))}
+        {!selectedState && visibleProvinces.map(province => {
+          const id     = provinceId(province.state, province.country)
+          const coords = PROVINCE_COORDS[id]
+          return (
+            <Marker
+              key={id}
+              position={coords}
+              icon={makeBubbleIcon(province.total, getRadius(province.total, minTotal, maxTotal))}
+              eventHandlers={{ click: () => onStateChange(id) }}
+            />
+          )
+        })}
 
         {/* City view — shown when a province is selected */}
         {selectedState && selectedProvince && selectedProvince.cities
