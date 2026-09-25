@@ -158,8 +158,20 @@ export default function HomeClient({
     ])
       .then(([drillData, statsData]) => {
         const artists = drillData.artists ?? []
-        const venues  = drillData.venues  ?? []
         const stats   = statsData.stats   ?? null
+        // Country-aware venue filter using cityStatsData (which carries country per city).
+        // The RPC only filters by state — for colliding codes (WA = Washington + W. Australia)
+        // we cross-reference each venue's city against our city stats to get its country.
+        // Permissive fallback: keep venue if its city is not in cityStatsData.
+        const rawVenues = drillData.venues ?? []
+        const venues = rawCountry
+          ? rawVenues.filter((v: any) => {
+              const match = cityStatsData.find(
+                (c) => c.city === v.city && c.state === v.state
+              )
+              return match ? match.country === rawCountry : true
+            })
+          : rawVenues
         stateDrillCache.current[selectedState] = { artists, venues, stats }
         setStateArtists(artists)
         setStateVenues(venues)
