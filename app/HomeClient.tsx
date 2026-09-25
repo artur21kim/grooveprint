@@ -69,6 +69,15 @@ function getStateName(state: string, country: string | null): string {
   return STATE_NAMES[state] ?? state
 }
 
+// ── Compound state-key parser ─────────────────────────────────
+// ProvinceMap emits 'AU_WA', 'AU_QLD' etc for Australian states
+// to avoid WA (Washington) and NT (Northwest Territories) collisions.
+// All other states are emitted as plain codes ('WA', 'BC', 'CA'…).
+function parseStateKey(key: string): { state: string; country: string | null } {
+  if (key.startsWith('AU_')) return { state: key.slice(3), country: 'AU' }
+  return { state: key, country: null }
+}
+
 // ── Main component ────────────────────────────────────────────
 export default function HomeClient({
   initialStats,
@@ -140,9 +149,11 @@ export default function HomeClient({
     setStateVenues(null)
     setDrillStats(null)
     setStateLoading(true)
+    // Extract raw state code — AU compound keys ('AU_WA') strip to 'WA' for API
+    const { state: rawState } = parseStateKey(selectedState)
     Promise.all([
-      fetch(`/api/home/state-drill?state=${encodeURIComponent(selectedState)}`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/home/state-stats?state=${encodeURIComponent(selectedState)}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/home/state-drill?state=${encodeURIComponent(rawState)}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/home/state-stats?state=${encodeURIComponent(rawState)}`, { signal: controller.signal }).then(r => r.json()),
     ])
       .then(([drillData, statsData]) => {
         const artists = drillData.artists ?? []
@@ -231,16 +242,19 @@ export default function HomeClient({
     return stateVenues ?? []
   }, [filteredVenues, selectedState, stateVenues])
 
+  // Country-aware city filter — handles AU_WA vs WA (Washington) compound keys
   const displayedCities = useMemo(() => {
     if (!selectedState) return cityStatsData
-    return cityStatsData.filter(c => c.state === selectedState)
+    const { state: selState, country: selCountry } = parseStateKey(selectedState)
+    return cityStatsData.filter(c => c.state === selState && (!selCountry || c.country === selCountry))
   }, [cityStatsData, selectedState])
 
   // ── GP-132: province/state rollup (client-side from city stats) ──
+  // Key uses state|country compound to keep WA (Washington) and WA (Western Australia) separate
   const provinceStats = useMemo(() => {
     const map = new Map<string, { state: string; country: string; total: number; cities: CityStats[] }>()
     for (const city of cityStatsData) {
-      const key = city.state ?? '__none__'
+      const key = `${city.state ?? '__none__'}|${city.country ?? ''}`
       if (!map.has(key)) {
         map.set(key, { state: city.state ?? '', country: city.country ?? '', total: 0, cities: [] })
       }
@@ -277,7 +291,8 @@ export default function HomeClient({
     // Client-side fallback: when state selected but RPC is slow/unavailable,
     // shows + cities are derived from cityStatsData; artists/venues fall back to global
     if (selectedState) {
-      const stateCities     = cityStatsData.filter(c => c.state === selectedState)
+      const { state: selState, country: selCountry } = parseStateKey(selectedState)
+      const stateCities     = cityStatsData.filter(c => c.state === selState && (!selCountry || c.country === selCountry))
       const stateTotalShows = stateCities.reduce((sum, c) => sum + Number(c.show_count), 0)
       return {
         totalShows:    stateTotalShows,
@@ -299,8 +314,9 @@ export default function HomeClient({
   // ── Filter context label — country-aware for AU/US/CA state collisions ────
   const filterContext = useMemo(() => {
     if (!selectedState) return null
-    const province = provinceStats.find(p => p.state === selectedState)
-    return getStateName(selectedState, province?.country ?? null)
+    const { state: rawState, country: rawCountry } = parseStateKey(selectedState)
+    const province = provinceStats.find(p => p.state === rawState && (!rawCountry || p.country === rawCountry))
+    return getStateName(rawState, province?.country ?? null)
   }, [selectedState, provinceStats])
 
   // ── Render ────────────────────────────────────────────────
@@ -591,7 +607,7 @@ export default function HomeClient({
                     ? ((prov.total / initialStats.total_shows) * 100).toFixed(1)
                     : '0'
                   return (
-                    <div key={prov.state}>
+                    <div key={`${prov.state}|${prov.country}`}>
                       <button
                         onClick={() => toggleProvince(prov.state)}
                         className={`w-full flex items-center justify-between py-1.5 rounded px-1 transition-colors${prov.state === selectedState ? ' ring-1 ring-primary' : ''}`}
