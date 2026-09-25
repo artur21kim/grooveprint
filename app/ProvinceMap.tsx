@@ -19,7 +19,7 @@ export type ProvinceData = {
 // All Australian states use an 'AU_' prefix internally so they never clash.
 // The parent component stores this compound string in selectedState unchanged.
 function provinceId(state: string, country: string): string {
-  return country === 'Australia' ? `AU_${state}` : state
+  return (country === 'Australia' || country === 'AU') ? `AU_${state}` : state
 }
 
 // ── Province label positions ──────────────────────────────────────────────────

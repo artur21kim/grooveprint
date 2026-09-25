@@ -243,10 +243,16 @@ export default function HomeClient({
   }, [filteredVenues, selectedState, stateVenues])
 
   // Country-aware city filter — handles AU_WA vs WA (Washington) compound keys
+  // AU states (AU_WA, AU_QLD…): match country exactly
+  // NA states (WA, BC…): exclude AU to prevent WA/NT bleed-through
   const displayedCities = useMemo(() => {
     if (!selectedState) return cityStatsData
     const { state: selState, country: selCountry } = parseStateKey(selectedState)
-    return cityStatsData.filter(c => c.state === selState && (!selCountry || c.country === selCountry))
+    return cityStatsData.filter(c => {
+      if (c.state !== selState) return false
+      if (selCountry) return c.country === selCountry
+      return c.country !== 'AU'
+    })
   }, [cityStatsData, selectedState])
 
   // ── GP-132: province/state rollup (client-side from city stats) ──
@@ -292,7 +298,11 @@ export default function HomeClient({
     // shows + cities are derived from cityStatsData; artists/venues fall back to global
     if (selectedState) {
       const { state: selState, country: selCountry } = parseStateKey(selectedState)
-      const stateCities     = cityStatsData.filter(c => c.state === selState && (!selCountry || c.country === selCountry))
+      const stateCities     = cityStatsData.filter(c => {
+        if (c.state !== selState) return false
+        if (selCountry) return c.country === selCountry
+        return c.country !== 'AU'
+      })
       const stateTotalShows = stateCities.reduce((sum, c) => sum + Number(c.show_count), 0)
       return {
         totalShows:    stateTotalShows,
