@@ -149,11 +149,12 @@ export default function HomeClient({
     setStateVenues(null)
     setDrillStats(null)
     setStateLoading(true)
-    // Extract raw state code — AU compound keys ('AU_WA') strip to 'WA' for API
-    const { state: rawState } = parseStateKey(selectedState)
+    // Extract raw state code and country — AU compound keys pass country so APIs can filter correctly
+    const { state: rawState, country: rawCountry } = parseStateKey(selectedState)
+    const countryParam = rawCountry ? `&country=${encodeURIComponent(rawCountry)}` : ''
     Promise.all([
-      fetch(`/api/home/state-drill?state=${encodeURIComponent(rawState)}`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/home/state-stats?state=${encodeURIComponent(rawState)}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/home/state-drill?state=${encodeURIComponent(rawState)}${countryParam}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(`/api/home/state-stats?state=${encodeURIComponent(rawState)}${countryParam}`, { signal: controller.signal }).then(r => r.json()),
     ])
       .then(([drillData, statsData]) => {
         const artists = drillData.artists ?? []
