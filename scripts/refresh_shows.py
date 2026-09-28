@@ -1184,8 +1184,8 @@ def main() -> None:
                     help="Skip interactive review; block and print SQL instead (for automation)")
     ap.add_argument("--city",           required=True,
                     help="Target city (e.g. Vancouver, Seattle)")
-    ap.add_argument("--state",          required=True,
-                    help="State/province code (e.g. BC, WA, ON)")
+    ap.add_argument("--state",          required=False, default=None,
+                    help="State/province code (e.g. BC, WA, ON) — omit for countries without states")
     ap.add_argument("--country",        required=True,
                     help="Full country name (e.g. Canada, 'United States')")
     ap.add_argument("--from-line",      type=int, default=0,
@@ -1207,7 +1207,7 @@ def main() -> None:
     print("Grooveprint — Show Refresh  v7")
     print(f"Started:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Input:    {args.input}")
-    print(f"Location: {args.city}, {args.state}, {args.country}")
+    print(f"Location: {args.city}{', ' + args.state if args.state else ''}, {args.country}")
     if args.from_line:
         print(f"From line:{args.from_line:,}  (skipping earlier rows)")
     mode = "DRY RUN" if args.dry_run else ("LIVE + interactive review" if interactive else "LIVE (non-interactive)")
@@ -1251,7 +1251,7 @@ def main() -> None:
     existing_artists, artist_name_map, artist_mbid_map       = load_existing_artists()
     existing_venues,  venue_name_map, venue_location_map = load_existing_venues()
     artist_aliases                                        = load_artist_aliases()
-    venue_aliases                                         = load_venue_aliases(args.city, args.state, args.country)
+    venue_aliases                                         = load_venue_aliases(args.city, args.state or "", args.country)
 
     # ── 3. Classify ──────────────────────────────────────────────────────────
     print("\nClassifying…")
