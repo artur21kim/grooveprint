@@ -13,6 +13,7 @@ Follows the same pattern as nominatim_enrich.py:
   - Auto-writes high-confidence matches
   - Review CSV for anything below threshold (ambiguous name matches)
   - --city filter for per-city runs
+  - --state / --country optional filters to scope to the right city
   - --threshold tunable (default 0.85)
 
 TM rate limit: 5 req/sec (enforced via REQUEST_DELAY).
@@ -24,15 +25,21 @@ Usage:
     # Dry run (default — no writes):
     python scripts/tm_enrichment/tm_venue_search.py --city Seattle
 
-    # Live run:
-    python scripts/tm_enrichment/tm_venue_search.py --city Seattle --live
-    python scripts/tm_enrichment/tm_venue_search.py --city Toronto --live
+    # Live run (US/CA cities — use --state to scope):
+    python scripts/tm_enrichment/tm_venue_search.py --city Nashville --state TN --live
+    python scripts/tm_enrichment/tm_venue_search.py --city Boston --state MA --live
+    python scripts/tm_enrichment/tm_venue_search.py --city Washington --state DC --live
+
+    # Live run (non-US/CA cities — use --country to scope):
+    python scripts/tm_enrichment/tm_venue_search.py --city Dublin --country Ireland --live
+    python scripts/tm_enrichment/tm_venue_search.py --city Auckland --country "New Zealand" --live
+    python scripts/tm_enrichment/tm_venue_search.py --city Melbourne --country Australia --live
 
     # Tune confidence threshold (default 0.85):
-    python scripts/tm_enrichment/tm_venue_search.py --city Seattle --live --threshold 0.80
+    python scripts/tm_enrichment/tm_venue_search.py --city Seattle --state WA --live --threshold 0.80
 
     # Re-process venues already mapped (for coord refresh):
-    python scripts/tm_enrichment/tm_venue_search.py --city Seattle --live --force
+    python scripts/tm_enrichment/tm_venue_search.py --city Seattle --state WA --live --force
 
 Required .env (same folder as tm_enrichment.py):
     SUPABASE_URL=https://your-project.supabase.co
@@ -71,11 +78,16 @@ EXPORTS_DIR = Path("exports")
 
 # Map Grooveprint country names → TM ISO codes
 COUNTRY_CODE_MAP = {
-    "canada":        "CA",
-    "united states": "US",
-    "usa":           "US",
-    "us":            "US",
-    "ca":            "CA",
+    "canada":          "CA",
+    "united states":   "US",
+    "usa":             "US",
+    "us":              "US",
+    "ca":              "CA",
+    "australia":       "AU",
+    "ireland":         "IE",
+    "new zealand":     "NZ",
+    "united kingdom":  "GB",
+    "uk":              "GB",
 }
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -253,6 +265,8 @@ def parse_tm_venue(tm_venue: dict) -> dict:
 def run(
     dry_run:    bool,
     city:       Optional[str],
+    state:      Optional[str],
+    country:    Optional[str],
     threshold:  float,
     force:      bool,
     verbose:    bool,
@@ -269,6 +283,10 @@ def run(
         params["tm_venue_id"] = "is.null"
     if city:
         params["city"] = f"eq.{city}"
+    if state:
+        params["state"] = f"eq.{state}"
+    if country:
+        params["country"] = f"eq.{country}"
 
     log.info("Loading venues from Supabase…")
     venues = sb_get_all("dim_venue", params)
@@ -277,10 +295,12 @@ def run(
 
     total = len(venues)
     log.info(
-        "Mode: %s | Venues to search: %d%s%s",
+        "Mode: %s | Venues to search: %d%s%s%s%s",
         "DRY-RUN" if dry_run else "LIVE",
         total,
         f" (city={city})" if city else "",
+        f" (state={state})" if state else "",
+        f" (country={country})" if country else "",
         f" (capped at {limit})" if limit else "",
     )
     if dry_run:
@@ -290,6 +310,10 @@ def run(
     # ── Review CSV ────────────────────────────────────────────────────────────
     today = date.today().isoformat()
     city_slug = city.lower().replace(" ", "_") if city else "all"
+    if state:
+        city_slug = f"{city_slug}_{state.lower()}"
+    if country:
+        city_slug = f"{city_slug}_{country.lower().replace(' ', '_')}"
     review_path = EXPORTS_DIR / "pipeline_reviews" / f"tm_venue_search_review_{city_slug}_{today}.csv"
     review_path.parent.mkdir(parents=True, exist_ok=True)
     review_rows: list[dict] = []
@@ -541,7 +565,19 @@ def main() -> None:
     parser.add_argument(
         "--city",
         default=None, metavar="CITY",
-        help="Only process venues in this city, e.g. Seattle, Toronto, Vancouver",
+        help="Only process venues in this city, e.g. Nashville, Dublin, Auckland",
+    )
+    parser.add_argument(
+        "--state",
+        default=None, metavar="STATE",
+        help="Filter to venues in this state/province, e.g. TN, MA, DC, ON, BC. "
+             "Use for US/CA cities to avoid matching same-name cities in other states.",
+    )
+    parser.add_argument(
+        "--country",
+        default=None, metavar="COUNTRY",
+        help="Filter to venues in this country (full name), e.g. Ireland, 'New Zealand', Australia. "
+             "Use for non-US/CA cities to avoid matching same-name cities in other countries.",
     )
     parser.add_argument(
         "--threshold",
@@ -568,6 +604,8 @@ def main() -> None:
     run(
         dry_run=not args.live,
         city=args.city,
+        state=args.state,
+        country=args.country,
         threshold=args.threshold,
         force=args.force,
         verbose=args.verbose,

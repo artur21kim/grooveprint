@@ -230,6 +230,7 @@ def detect_city(filename: str) -> str | None:
     stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
     # Strip trailing year suffix only: " - 2026", "_2026", or "-2026" at end
     stem = re.sub(r"[\s_-]+\d{4}$", "", stem).strip()
+    stem = stem.replace(",", "")  # handle "Washington, DC" -> "washington dc"
     return stem if stem in CITY_MAP else None
 
 
@@ -266,6 +267,13 @@ def convert_file(input_path: Path, output_path: Path, dry_run: bool) -> int:
         details2 = get(row, "details2")
         details4 = get(row, "details4")
         details6 = get(row, "details6")
+
+        # Fallback: newer Octoparse format stores artist in Field1 as "Artist at Venue, City"
+        # and leaves the details column empty.
+        if not artist:
+            title = get(row, "Field1")
+            if " at " in title:
+                artist = title.split(" at ")[0].strip()
 
         # Skip rows missing URL or artist
         if not url or "setlist.fm" not in url or not artist:

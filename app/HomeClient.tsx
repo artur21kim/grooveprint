@@ -48,9 +48,11 @@ const STATE_NAMES: Record<string, string> = {
 function normalizeCountry(c: string | null): string | null {
   if (!c) return c
   const l = c.toLowerCase()
-  if (l === 'canada')                               return 'CA'
+  if (l === 'canada')                                     return 'CA'
   if (l === 'united states' || l === 'us' || l === 'usa') return 'US'
-  if (l === 'australia' || l === 'au')              return 'AU'
+  if (l === 'australia' || l === 'au')                    return 'AU'
+  if (l === 'ireland'     || l === 'ie')                  return 'IE'
+  if (l === 'new zealand' || l === 'nz')                  return 'NZ'
   return c
 }
 
@@ -76,6 +78,21 @@ function getStateName(state: string, country: string | null): string {
 function parseStateKey(key: string): { state: string; country: string | null } {
   if (key.startsWith('AU_')) return { state: key.slice(3), country: 'AU' }
   return { state: key, country: null }
+}
+
+// ── GP-233: countries with expandable state breakdowns ───────
+const EXPANDABLE_COUNTRIES = new Set(['US', 'CA', 'AU'])
+
+const COUNTRY_NAMES: Record<string, string> = {
+  US: 'United States',
+  CA: 'Canada',
+  AU: 'Australia',
+  IE: 'Ireland',
+  NZ: 'New Zealand',
+  GB: 'United Kingdom',
+}
+function getCountryName(code: string): string {
+  return COUNTRY_NAMES[code] ?? code
 }
 
 // ── Main component ────────────────────────────────────────────
@@ -105,7 +122,7 @@ export default function HomeClient({
   const [showAllCities,  setShowAllCities]  = useState(false)
 
   // ── GP-132/133: city stats + expand state ─────────────────
-  const [expandedProvinces, setExpandedProvinces] = useState<Set<string>>(new Set())
+  const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set())
   const [selectedState,     setSelectedState]     = useState<string | null>(null)
   const [stateArtists,      setStateArtists]      = useState<TopArtist[] | null>(null)
   const [stateVenues,       setStateVenues]       = useState<TopVenue[]  | null>(null)
@@ -218,12 +235,12 @@ export default function HomeClient({
 
 
 
-  // ── GP-132: province/state expand toggle ─────────────────
-  const toggleProvince = useCallback((state: string) => {
-    setExpandedProvinces(prev => {
+  // ── GP-233: country expand toggle ───────────────────────
+  const toggleCountry = useCallback((country: string) => {
+    setExpandedCountries(prev => {
       const next = new Set(prev)
-      if (next.has(state)) next.delete(state)
-      else next.add(state)
+      if (next.has(country)) next.delete(country)
+      else next.add(country)
       return next
     })
   }, [])
@@ -259,6 +276,7 @@ export default function HomeClient({
 
   // ── GP-132: province/state rollup (client-side from city stats) ──
   // Key uses state|country compound to keep WA (Washington) and WA (Western Australia) separate
+  // Retained: still feeds ProvinceMap and filterContext
   const provinceStats = useMemo(() => {
     const map = new Map<string, { state: string; country: string; total: number; cities: CityStats[] }>()
     for (const city of cityStatsData) {
@@ -273,6 +291,33 @@ export default function HomeClient({
     return Array.from(map.values())
       .filter(p => p.state)
       .sort((a, b) => b.total - a.total)
+  }, [cityStatsData])
+
+  // ── GP-233: country rollup with nested state breakdown ───
+  const countryStats = useMemo(() => {
+    const map = new Map<string, { country: string; total: number; states: { state: string; total: number; cities: CityStats[] }[] }>()
+    for (const city of cityStatsData) {
+      const countryKey = city.country ?? '__none__'
+      if (!map.has(countryKey)) {
+        map.set(countryKey, { country: countryKey, total: 0, states: [] })
+      }
+      const entry = map.get(countryKey)!
+      entry.total += Number(city.show_count)
+      if (EXPANDABLE_COUNTRIES.has(countryKey) && city.state) {
+        const existing = entry.states.find(s => s.state === city.state)
+        if (existing) {
+          existing.total += Number(city.show_count)
+          existing.cities.push(city)
+        } else {
+          entry.states.push({ state: city.state, total: Number(city.show_count), cities: [city] })
+        }
+      }
+    }
+    return Array.from(map.values())
+      .filter(c => c.country && c.country !== '__none__')
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+      .map(c => ({ ...c, states: c.states.sort((a, b) => b.total - a.total) }))
   }, [cityStatsData])
 
   // ── Global date range derived from ISR-fetched min/max dates ──
@@ -555,7 +600,7 @@ export default function HomeClient({
 
         </div>
 
-        {/* ── GP-132: Top Cities + Provinces/States ───────────────── */}
+        {/* ── GP-132: Top Cities + GP-233: Top Countries ───────────── */}
         {cityStatsData.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
 
@@ -606,61 +651,70 @@ export default function HomeClient({
               )}
             </div>
 
-            {/* Top Provinces / States */}
+            {/* Top Countries — GP-233 */}
             <div className="bg-card rounded-lg shadow-lg p-4 md:p-5">
               <h2 className="text-xl md:text-2xl font-bold text-foreground mb-3 md:mb-4">
-                Top Provinces &amp; States
+                Top Countries
               </h2>
               <div className="space-y-0.5">
-                {provinceStats.map(prov => {
-                  const maxTotal  = provinceStats[0]?.total ?? 1
-                  const pct       = Math.round((prov.total / maxTotal) * 100)
-                  const sharePct  = initialStats.total_shows > 0
-                    ? ((prov.total / initialStats.total_shows) * 100).toFixed(1)
+                {countryStats.map(ctr => {
+                  const isExpandable = EXPANDABLE_COUNTRIES.has(ctr.country) && ctr.states.length > 0
+                  const maxTotal     = countryStats[0]?.total ?? 1
+                  const pct          = Math.round((ctr.total / maxTotal) * 100)
+                  const sharePct     = initialStats.total_shows > 0
+                    ? ((ctr.total / initialStats.total_shows) * 100).toFixed(1)
                     : '0'
                   return (
-                    <div key={`${prov.state}|${prov.country}`}>
+                    <div key={ctr.country}>
                       <button
-                        onClick={() => toggleProvince(prov.state)}
-                        className={`w-full flex items-center justify-between py-1.5 rounded px-1 transition-colors${prov.state === selectedState ? ' ring-1 ring-primary' : ''}`}
+                        onClick={() => isExpandable && toggleCountry(ctr.country)}
+                        className={`w-full flex items-center justify-between py-1.5 rounded px-1 transition-colors${!isExpandable ? ' cursor-default' : ''}`}
                         style={{ background: `linear-gradient(to right, rgba(0,191,168,0.22) ${pct}%, transparent ${pct}%)` }}
-                        title={`${getStateName(prov.state, prov.country)}: ${prov.total.toLocaleString()} shows · ${sharePct}% of total`}
+                        title={`${getCountryName(ctr.country)}: ${ctr.total.toLocaleString()} shows · ${sharePct}% of total`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <svg
-                            width="8" height="8" viewBox="0 0 8 8" fill="currentColor"
-                            style={{
-                              color: '#0d9488',
-                              transform: expandedProvinces.has(prov.state) ? 'rotate(90deg)' : 'none',
-                              transition: 'transform 150ms',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <path d="M2 1.5l4 2.5-4 2.5V1.5z"/>
-                          </svg>
-                          <span className="text-sm font-medium text-foreground">
-                            {getStateName(prov.state, prov.country)}
-                          </span>
-                          {prov.country && (
-                            <CountryFlag code={prov.country} className="inline-block w-4 h-auto rounded-[1px] align-[-2px]" />
+                          {isExpandable ? (
+                            <svg
+                              width="8" height="8" viewBox="0 0 8 8" fill="currentColor"
+                              style={{
+                                color: '#0d9488',
+                                transform: expandedCountries.has(ctr.country) ? 'rotate(90deg)' : 'none',
+                                transition: 'transform 150ms',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <path d="M2 1.5l4 2.5-4 2.5V1.5z"/>
+                            </svg>
+                          ) : (
+                            <span style={{ width: 8, display: 'inline-block', flexShrink: 0 }} />
                           )}
+                          <CountryFlag code={ctr.country} className="inline-block w-4 h-auto rounded-[1px] align-[-2px] flex-shrink-0" />
+                          <span className="text-sm font-medium text-foreground">
+                            {getCountryName(ctr.country)}
+                          </span>
                         </div>
                         <span className="text-xs md:text-sm font-semibold whitespace-nowrap ml-2 text-foreground">
-                          {prov.total.toLocaleString()} shows
+                          {ctr.total.toLocaleString()} shows
                         </span>
                       </button>
-                      {expandedProvinces.has(prov.state) && (
+                      {isExpandable && expandedCountries.has(ctr.country) && (
                         <div className="ml-5 mb-1 space-y-0.5">
-                          {prov.cities.map(city => (
-                            <div
-                              key={city.city}
-                              className="flex items-center justify-between py-0.5"
+                          {ctr.states.map(st => (
+                            <button
+                              key={st.state}
+                              onClick={() => setSelectedState(ctr.country === 'AU' ? `AU_${st.state}` : st.state)}
+                              className="w-full flex items-center justify-between py-0.5 px-1 rounded hover:bg-muted/30 transition-colors"
                             >
-                              <span className="text-xs pl-1" style={{ color: '#0d9488' }}>{city.city}</span>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor" style={{ color: '#0d9488', flexShrink: 0 }}>
+                                  <path d="M2 1.5l4 2.5-4 2.5V1.5z"/>
+                                </svg>
+                                <span className="text-xs text-foreground">{getStateName(st.state, ctr.country)}</span>
+                              </div>
                               <span className="text-xs text-muted-foreground font-medium ml-4 whitespace-nowrap">
-                                {Number(city.show_count).toLocaleString()} shows
+                                {st.total.toLocaleString()} shows
                               </span>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       )}
