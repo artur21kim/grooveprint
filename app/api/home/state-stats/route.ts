@@ -4,9 +4,17 @@ import { createClient } from '@supabase/supabase-js'
 export const runtime = 'edge'
 
 export async function GET(req: NextRequest) {
-  const state = req.nextUrl.searchParams.get('state')
+  const state   = req.nextUrl.searchParams.get('state')
+  const country = req.nextUrl.searchParams.get('country')
+
+  if (!state && !country) {
+    return NextResponse.json({ error: 'state or country required' }, { status: 400 })
+  }
+
+  // Country-only drilldown (IE, NZ — no state): return null stats so HomeClient
+  // falls back to computing shows/cities client-side from cityStatsData.
   if (!state) {
-    return NextResponse.json({ error: 'Missing state param' }, { status: 400 })
+    return NextResponse.json({ stats: null })
   }
 
   const supabase = createClient(

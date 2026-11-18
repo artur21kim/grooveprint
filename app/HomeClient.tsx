@@ -74,14 +74,18 @@ function getStateName(state: string, country: string | null): string {
 // ── Compound state-key parser ─────────────────────────────────
 // ProvinceMap emits 'AU_WA', 'AU_QLD' etc for Australian states
 // to avoid WA (Washington) and NT (Northwest Territories) collisions.
+// CTRY_ prefix: country-only drilldowns for stateless countries (IE, NZ).
 // All other states are emitted as plain codes ('WA', 'BC', 'CA'…).
 function parseStateKey(key: string): { state: string; country: string | null } {
-  if (key.startsWith('AU_')) return { state: key.slice(3), country: 'AU' }
+  if (key.startsWith('AU_'))   return { state: key.slice(3), country: 'AU' }
+  if (key.startsWith('CTRY_')) return { state: '',           country: key.slice(5) }
   return { state: key, country: null }
 }
 
 // ── GP-233: countries with expandable state breakdowns ───────
-const EXPANDABLE_COUNTRIES = new Set(['US', 'CA', 'AU'])
+const EXPANDABLE_COUNTRIES      = new Set(['US', 'CA', 'AU'])
+// Countries that expand to show a city list (no state breakdown) and drill down on click
+const CITY_EXPANDABLE_COUNTRIES = new Set(['IE', 'NZ'])
 
 const COUNTRY_NAMES: Record<string, string> = {
   US: 'United States',
@@ -166,12 +170,21 @@ export default function HomeClient({
     setStateVenues(null)
     setDrillStats(null)
     setStateLoading(true)
-    // Extract raw state code and country — AU compound keys pass country so APIs can filter correctly
+
+    // Extract raw state code and country — AU compound keys pass country so APIs can filter correctly.
+    // CTRY_ keys (IE, NZ) are country-only — no state filter, country passed as sole param.
     const { state: rawState, country: rawCountry } = parseStateKey(selectedState)
-    const countryParam = rawCountry ? `&country=${encodeURIComponent(rawCountry)}` : ''
+    const isCountryOnly = !rawState && !!rawCountry
+    const drillUrl = isCountryOnly
+      ? `/api/home/state-drill?country=${encodeURIComponent(rawCountry!)}`
+      : `/api/home/state-drill?state=${encodeURIComponent(rawState)}${rawCountry ? `&country=${encodeURIComponent(rawCountry)}` : ''}`
+    const statsUrl = isCountryOnly
+      ? `/api/home/state-stats?country=${encodeURIComponent(rawCountry!)}`
+      : `/api/home/state-stats?state=${encodeURIComponent(rawState)}${rawCountry ? `&country=${encodeURIComponent(rawCountry)}` : ''}`
+
     Promise.all([
-      fetch(`/api/home/state-drill?state=${encodeURIComponent(rawState)}${countryParam}`, { signal: controller.signal }).then(r => r.json()),
-      fetch(`/api/home/state-stats?state=${encodeURIComponent(rawState)}${countryParam}`, { signal: controller.signal }).then(r => r.json()),
+      fetch(drillUrl, { signal: controller.signal }).then(r => r.json()),
+      fetch(statsUrl, { signal: controller.signal }).then(r => r.json()),
     ])
       .then(([drillData, statsData]) => {
         const artists = drillData.artists ?? []
@@ -261,11 +274,16 @@ export default function HomeClient({
     return stateVenues ?? []
   }, [filteredVenues, selectedState, stateVenues])
 
-  // Country-aware city filter — handles AU_WA vs WA (Washington) compound keys
-  // AU states (AU_WA, AU_QLD…): match country exactly
-  // NA states (WA, BC…): exclude AU to prevent WA/NT bleed-through
+  // Country-aware city filter — handles AU_WA vs WA (Washington) compound keys.
+  // AU states (AU_WA, AU_QLD…): match country exactly.
+  // NA states (WA, BC…): exclude AU to prevent WA/NT bleed-through.
+  // CTRY_ keys (IE, NZ): filter by country only (no state match).
   const displayedCities = useMemo(() => {
     if (!selectedState) return cityStatsData
+    if (selectedState.startsWith('CTRY_')) {
+      const ctryCode = selectedState.slice(5)
+      return cityStatsData.filter(c => c.country === ctryCode)
+    }
     const { state: selState, country: selCountry } = parseStateKey(selectedState)
     return cityStatsData.filter(c => {
       if (c.state !== selState) return false
@@ -293,13 +311,17 @@ export default function HomeClient({
       .sort((a, b) => b.total - a.total)
   }, [cityStatsData])
 
-  // ── GP-233: country rollup with nested state breakdown ───
+  // ── GP-233: country rollup with nested state breakdown or city list ──
   const countryStats = useMemo(() => {
-    const map = new Map<string, { country: string; total: number; states: { state: string; total: number; cities: CityStats[] }[] }>()
+    const map = new Map<string, {
+      country: string; total: number;
+      states: { state: string; total: number; cities: CityStats[] }[];
+      cities: CityStats[];  // for CITY_EXPANDABLE_COUNTRIES (IE, NZ)
+    }>()
     for (const city of cityStatsData) {
       const countryKey = city.country ?? '__none__'
       if (!map.has(countryKey)) {
-        map.set(countryKey, { country: countryKey, total: 0, states: [] })
+        map.set(countryKey, { country: countryKey, total: 0, states: [], cities: [] })
       }
       const entry = map.get(countryKey)!
       entry.total += Number(city.show_count)
@@ -312,12 +334,19 @@ export default function HomeClient({
           entry.states.push({ state: city.state, total: Number(city.show_count), cities: [city] })
         }
       }
+      if (CITY_EXPANDABLE_COUNTRIES.has(countryKey)) {
+        entry.cities.push(city)
+      }
     }
     return Array.from(map.values())
       .filter(c => c.country && c.country !== '__none__')
       .sort((a, b) => b.total - a.total)
       .slice(0, 10)
-      .map(c => ({ ...c, states: c.states.sort((a, b) => b.total - a.total) }))
+      .map(c => ({
+        ...c,
+        states: c.states.sort((a, b) => b.total - a.total),
+        cities: c.cities.sort((a, b) => Number(b.show_count) - Number(a.show_count)).slice(0, 8),
+      }))
   }, [cityStatsData])
 
   // ── Global date range derived from ISR-fetched min/max dates ──
@@ -341,21 +370,27 @@ export default function HomeClient({
         dateRange,
       }
     }
-    // Client-side fallback: when state selected but RPC is slow/unavailable,
-    // shows + cities are derived from cityStatsData; artists/venues fall back to global
+    // Client-side fallback: when state/country selected but RPC is slow/unavailable.
+    // Shows + cities derived from cityStatsData; artists/venues fall back to global.
     if (selectedState) {
-      const { state: selState, country: selCountry } = parseStateKey(selectedState)
-      const stateCities     = cityStatsData.filter(c => {
-        if (c.state !== selState) return false
-        if (selCountry) return c.country === selCountry
-        return c.country !== 'AU'
-      })
-      const stateTotalShows = stateCities.reduce((sum, c) => sum + Number(c.show_count), 0)
+      let fallbackCities: CityStats[]
+      if (selectedState.startsWith('CTRY_')) {
+        const ctryCode = selectedState.slice(5)
+        fallbackCities = cityStatsData.filter(c => c.country === ctryCode)
+      } else {
+        const { state: selState, country: selCountry } = parseStateKey(selectedState)
+        fallbackCities = cityStatsData.filter(c => {
+          if (c.state !== selState) return false
+          if (selCountry) return c.country === selCountry
+          return c.country !== 'AU'
+        })
+      }
+      const fallbackTotalShows = fallbackCities.reduce((sum, c) => sum + Number(c.show_count), 0)
       return {
-        totalShows:    stateTotalShows,
+        totalShows:    fallbackTotalShows,
         uniqueArtists: initialStats.unique_artists,
         uniqueVenues:  initialStats.unique_venues,
-        uniqueCities:  stateCities.length,
+        uniqueCities:  fallbackCities.length,
         dateRange:     globalDateRange,
       }
     }
@@ -371,6 +406,7 @@ export default function HomeClient({
   // ── Filter context label — country-aware for AU/US/CA state collisions ────
   const filterContext = useMemo(() => {
     if (!selectedState) return null
+    if (selectedState.startsWith('CTRY_')) return getCountryName(selectedState.slice(5))
     const { state: rawState, country: rawCountry } = parseStateKey(selectedState)
     const province = provinceStats.find(p => p.state === rawState && (!rawCountry || p.country === rawCountry))
     return getStateName(rawState, province?.country ?? null)
@@ -658,16 +694,28 @@ export default function HomeClient({
               </h2>
               <div className="space-y-0.5">
                 {countryStats.map(ctr => {
-                  const isExpandable = EXPANDABLE_COUNTRIES.has(ctr.country) && ctr.states.length > 0
-                  const maxTotal     = countryStats[0]?.total ?? 1
-                  const pct          = Math.round((ctr.total / maxTotal) * 100)
-                  const sharePct     = initialStats.total_shows > 0
+                  const isStateExpandable = EXPANDABLE_COUNTRIES.has(ctr.country) && ctr.states.length > 0
+                  const isCityExpandable  = CITY_EXPANDABLE_COUNTRIES.has(ctr.country) && ctr.cities.length > 0
+                  const isExpandable      = isStateExpandable || isCityExpandable
+                  const isExpanded        = expandedCountries.has(ctr.country)
+                  const maxTotal          = countryStats[0]?.total ?? 1
+                  const pct               = Math.round((ctr.total / maxTotal) * 100)
+                  const sharePct          = initialStats.total_shows > 0
                     ? ((ctr.total / initialStats.total_shows) * 100).toFixed(1)
                     : '0'
                   return (
                     <div key={ctr.country}>
                       <button
-                        onClick={() => isExpandable && toggleCountry(ctr.country)}
+                        onClick={() => {
+                          if (isCityExpandable) {
+                            // Toggle expand + set/clear country drilldown simultaneously
+                            const willCollapse = isExpanded
+                            toggleCountry(ctr.country)
+                            setSelectedState(willCollapse ? null : `CTRY_${ctr.country}`)
+                          } else if (isStateExpandable) {
+                            toggleCountry(ctr.country)
+                          }
+                        }}
                         className={`w-full flex items-center justify-between py-1.5 rounded px-1 transition-colors${!isExpandable ? ' cursor-default' : ''}`}
                         style={{ background: `linear-gradient(to right, rgba(0,191,168,0.22) ${pct}%, transparent ${pct}%)` }}
                         title={`${getCountryName(ctr.country)}: ${ctr.total.toLocaleString()} shows · ${sharePct}% of total`}
@@ -678,7 +726,7 @@ export default function HomeClient({
                               width="8" height="8" viewBox="0 0 8 8" fill="currentColor"
                               style={{
                                 color: '#0d9488',
-                                transform: expandedCountries.has(ctr.country) ? 'rotate(90deg)' : 'none',
+                                transform: isExpanded ? 'rotate(90deg)' : 'none',
                                 transition: 'transform 150ms',
                                 flexShrink: 0,
                               }}
@@ -697,7 +745,9 @@ export default function HomeClient({
                           {ctr.total.toLocaleString()} shows
                         </span>
                       </button>
-                      {isExpandable && expandedCountries.has(ctr.country) && (
+
+                      {/* State breakdown (US / CA / AU) */}
+                      {isStateExpandable && isExpanded && (
                         <div className="ml-5 mb-1 space-y-0.5">
                           {ctr.states.map(st => (
                             <button
@@ -715,6 +765,28 @@ export default function HomeClient({
                                 {st.total.toLocaleString()} shows
                               </span>
                             </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* City list (IE / NZ — no state breakdown, not clickable) */}
+                      {isCityExpandable && isExpanded && (
+                        <div className="ml-5 mb-1 space-y-0.5">
+                          {ctr.cities.map(city => (
+                            <div
+                              key={city.city}
+                              className="flex items-center justify-between py-0.5 px-1"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor" style={{ color: '#0d9488', flexShrink: 0 }}>
+                                  <path d="M2 1.5l4 2.5-4 2.5V1.5z"/>
+                                </svg>
+                                <span className="text-xs text-muted-foreground">{city.city}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground font-medium ml-4 whitespace-nowrap">
+                                {Number(city.show_count).toLocaleString()} shows
+                              </span>
+                            </div>
                           ))}
                         </div>
                       )}
