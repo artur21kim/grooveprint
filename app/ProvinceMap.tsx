@@ -475,14 +475,13 @@ export default function ProvinceMap({
 
         {/* City view — shown when a province is selected */}
         {selectedState && selectedProvince && selectedProvince.cities
-          .map(city => {
+          .flatMap(city => {
             const pos: [number, number] | null =
               city.latitude != null && city.longitude != null
-                ? [city.latitude, city.longitude]
+                ? [city.latitude as number, city.longitude as number]
                 : (CITY_FALLBACK_COORDS[city.city] ?? null)
-            return pos ? { city, pos } : null
+            return pos ? [{ city, pos }] : []
           })
-          .filter(Boolean)
           .map(({ city, pos }) => (
             <Marker
               key={city.city}
