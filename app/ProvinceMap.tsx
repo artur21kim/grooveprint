@@ -17,6 +17,7 @@ export type ProvinceData = {
 // ── Compound-key helper ───────────────────────────────────────────────────────
 // WA and NT collide between North America and Australia.
 // All Australian states use an 'AU_' prefix internally so they never clash.
+// IE and NZ are country-level entries — their state === their ISO code, no prefix needed.
 // The parent component stores this compound string in selectedState unchanged.
 function provinceId(state: string, country: string): string {
   return (country === 'Australia' || country === 'AU') ? `AU_${state}` : state
@@ -50,6 +51,9 @@ const PROVINCE_COORDS: Record<string, [number, number]> = {
   AU_ACT: [-35.3,  149.1],
   AU_TAS: [-42.0,  146.5],
   AU_NT:  [-20.0,  133.5],
+  // Country-level entries (IE, NZ — no state breakdown, single bubble per country)
+  IE: [53.4,   -8.0],
+  NZ: [-41.0, 174.5],
 }
 
 // City coordinates sourced from dim_city via get_overview_city_stats (GP-153)
@@ -79,6 +83,9 @@ const STATE_NAMES: Record<string, string> = {
   AU_ACT: 'Australian Capital Territory',
   AU_TAS: 'Tasmania',
   AU_NT:  'Northern Territory',
+  // Country-level (IE, NZ)
+  IE: 'Ireland',
+  NZ: 'New Zealand',
 }
 
 const NA_CENTER: [number, number] = [44, -96]
