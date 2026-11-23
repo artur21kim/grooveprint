@@ -312,21 +312,25 @@ export default function HomeClient({
   const provinceStats = useMemo(() => {
     const map = new Map<string, { state: string; country: string; total: number; cities: CityStats[] }>()
     for (const city of cityStatsData) {
-      if (city.state) {
-        // Normal state-level entry
-        const key = `${city.state}|${city.country ?? ''}`
-        if (!map.has(key)) {
-          map.set(key, { state: city.state, country: city.country ?? '', total: 0, cities: [] })
-        }
-        const entry = map.get(key)!
-        entry.total += Number(city.show_count)
-        entry.cities.push(city)
-      } else if (city.country && CITY_EXPANDABLE_COUNTRIES.has(city.country)) {
-        // Country-level pseudo-province for IE/NZ (state=null in DB)
+      // CITY_EXPANDABLE_COUNTRIES checked FIRST — IE/NZ cities go here regardless of
+      // any residual county codes in city.state (e.g. '04', '16' from setlist.fm data).
+      // Checking city.state truthy first would route those to a `04|IE` key that has
+      // no entry in PROVINCE_COORDS, silently dropping them from the IE/NZ bubble total.
+      if (city.country && CITY_EXPANDABLE_COUNTRIES.has(city.country)) {
+        // Country-level pseudo-province for IE/NZ
         // state is set to the country code so ProvinceMap can find PROVINCE_COORDS['IE'/'NZ']
         const key = `${city.country}|${city.country}`
         if (!map.has(key)) {
           map.set(key, { state: city.country, country: city.country, total: 0, cities: [] })
+        }
+        const entry = map.get(key)!
+        entry.total += Number(city.show_count)
+        entry.cities.push(city)
+      } else if (city.state) {
+        // Normal US/CA/AU state-level entry
+        const key = `${city.state}|${city.country ?? ''}`
+        if (!map.has(key)) {
+          map.set(key, { state: city.state, country: city.country ?? '', total: 0, cities: [] })
         }
         const entry = map.get(key)!
         entry.total += Number(city.show_count)

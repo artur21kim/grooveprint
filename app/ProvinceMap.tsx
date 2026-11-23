@@ -56,7 +56,38 @@ const PROVINCE_COORDS: Record<string, [number, number]> = {
   NZ: [-41.0, 174.5],
 }
 
-// City coordinates sourced from dim_city via get_overview_city_stats (GP-153)
+// City coordinates sourced from dim_city via get_overview_city_stats (GP-153).
+// TODO: Remove CITY_FALLBACK_COORDS once IE and NZ Nominatim/TM venue enrichment is complete.
+// At that point dim_venue will have real lat/lon for these cities and the fallback
+// is no longer needed — having two sources of truth for coordinates is a maintenance risk.
+// Enrichment pipeline steps: tm_venue_search.py → musicbrainz_venue_enrich.py → nominatim_enrich.py
+// for --country Ireland and --country "New Zealand".
+const CITY_FALLBACK_COORDS: Record<string, [number, number]> = {
+  // Ireland
+  'Dublin':     [53.3498,  -6.2603],
+  'Cork':       [51.8985,  -8.4756],
+  'Galway':     [53.2707,  -9.0568],
+  'Limerick':   [52.6638,  -8.6267],
+  'Stradbally': [52.9340,  -7.1580],
+  'Waterford':  [52.2593,  -7.1101],
+  'Kilkenny':   [52.6541,  -7.2448],
+  'Sligo':      [54.2766,  -8.4761],
+  'Drogheda':   [53.7193,  -6.3461],
+  'Malahide':   [53.4506,  -6.1545],
+  // New Zealand
+  'Auckland':         [-36.8485,  174.7633],
+  'Wellington':       [-41.2865,  174.7762],
+  'Christchurch':     [-43.5321,  172.6362],
+  'Dunedin':          [-45.8788,  170.5028],
+  'Hamilton':         [-37.7870,  175.2793],
+  'New Plymouth':     [-39.0556,  174.0752],
+  'Napier':           [-39.4931,  176.9120],
+  'Palmerston North': [-40.3523,  175.6082],
+  'Tauranga':         [-37.6878,  176.1651],
+  'Queenstown':       [-45.0312,  168.6626],
+  'Gisborne':         [-38.6623,  178.0176],
+  'Mount Maunganui':  [-37.6442,  176.1894],
+}
 
 const STATE_NAMES: Record<string, string> = {
   // Canada
@@ -162,9 +193,11 @@ function MapController({
     }
 
     const positions: [number, number][] = (selectedProvince?.cities ?? [])
-      .map(c => (c.latitude != null && c.longitude != null
-        ? [c.latitude, c.longitude] as [number, number]
-        : null))
+      .map(c => {
+        if (c.latitude != null && c.longitude != null) return [c.latitude, c.longitude] as [number, number]
+        const fb = CITY_FALLBACK_COORDS[c.city]
+        return fb ?? null
+      })
       .filter(Boolean) as [number, number][]
 
     if (positions.length >= 2) {
@@ -442,11 +475,18 @@ export default function ProvinceMap({
 
         {/* City view — shown when a province is selected */}
         {selectedState && selectedProvince && selectedProvince.cities
-          .filter(c => c.latitude != null && c.longitude != null)
-          .map(city => (
+          .map(city => {
+            const pos: [number, number] | null =
+              city.latitude != null && city.longitude != null
+                ? [city.latitude, city.longitude]
+                : (CITY_FALLBACK_COORDS[city.city] ?? null)
+            return pos ? { city, pos } : null
+          })
+          .filter(Boolean)
+          .map(({ city, pos }) => (
             <Marker
               key={city.city}
-              position={[city.latitude as number, city.longitude as number]}
+              position={pos}
               icon={makeCityIcon(
                 Number(city.show_count),
                 getRadius(Number(city.show_count), cityMin, cityMax)
