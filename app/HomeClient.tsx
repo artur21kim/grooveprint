@@ -84,6 +84,10 @@ function parseStateKey(key: string): { state: string; country: string | null } {
 // ── GP-233: countries with expandable state breakdowns ───────
 const EXPANDABLE_COUNTRIES = new Set(['US', 'CA', 'AU'])
 
+// Valid Australian state/territory codes — used to filter out stray city names
+// that end up in dim_venue.state for venues missing proper geocoding metadata
+const AU_STATE_CODES = new Set(['NSW', 'VIC', 'QLD', 'SA', 'WA', 'ACT', 'TAS', 'NT'])
+
 // Countries with no state breakdown — expand to show city list, click drills to country
 // These codes are used directly as selectedState keys (no prefix — no collision with state codes)
 const CITY_EXPANDABLE_COUNTRIES = new Set(['IE', 'NZ'])
@@ -325,9 +329,21 @@ export default function HomeClient({
         }
         const entry = map.get(key)!
         entry.total += Number(city.show_count)
-        entry.cities.push(city)
+        // Deduplicate by city name — the RPC may return the same city twice (once with
+        // state=null, once with a residual county code). Merge show_count and prefer non-null coords.
+        const existing = entry.cities.find(c => c.city === city.city)
+        if (existing) {
+          existing.show_count = Number(existing.show_count) + Number(city.show_count)
+          if (city.latitude != null)  existing.latitude  = city.latitude
+          if (city.longitude != null) existing.longitude = city.longitude
+        } else {
+          entry.cities.push({ ...city })
+        }
       } else if (city.state) {
-        // Normal US/CA/AU state-level entry
+        // Normal US/CA/AU state-level entry.
+        // Skip stray AU rows where state is a city name rather than a valid state code.
+        const countryNorm = normalizeCountry(city.country)
+        if (countryNorm === 'AU' && !AU_STATE_CODES.has(city.state)) continue
         const key = `${city.state}|${city.country ?? ''}`
         if (!map.has(key)) {
           map.set(key, { state: city.state, country: city.country ?? '', total: 0, cities: [] })
@@ -357,6 +373,8 @@ export default function HomeClient({
       const entry = map.get(countryKey)!
       entry.total += Number(city.show_count)
       if (EXPANDABLE_COUNTRIES.has(countryKey) && city.state) {
+        // Skip stray AU rows where state is a city name rather than a valid state code
+        if (countryKey === 'AU' && !AU_STATE_CODES.has(city.state)) continue
         const existing = entry.states.find(s => s.state === city.state)
         if (existing) {
           existing.total += Number(city.show_count)
